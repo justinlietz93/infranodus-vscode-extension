@@ -1396,16 +1396,53 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 						let emptyReason = "";
 
 						if (selectedWords.length > 0) {
-							statementsList = statements
-								.filter((s: any) =>
-									selectedWords.some((w: string) =>
-										String(s?.content ?? "")
-											.toLowerCase()
-											.includes(w.toLowerCase()),
-									),
-								)
-								.map((s: any) => String(s.content));
+							// statementHashtags entries may arrive as "concept",
+							// "#concept", or "[[concept]]" (with underscores for spaces).
+							// Normalize both sides to a bare lowercase token before
+							// matching so the form on either side doesn't matter.
+							const normalizeConcept = (raw: unknown): string => {
+								let s = String(raw ?? "").trim();
+								const wiki = s.match(/^\[\[(.+)\]\]$/);
+								if (wiki) s = wiki[1];
+								s = s.replace(/^#+/, "");
+								return s.replace(/_/g, " ").trim().toLowerCase();
+							};
+							const lowerWords = selectedWords
+								.map(normalizeConcept)
+								.filter((w: string) => w.length > 0);
+							const scored = statements
+								.map((s: any) => {
+									const content = String(s?.content ?? "");
+									const tags: string[] = Array.isArray(
+										s?.statementHashtags,
+									)
+										? s.statementHashtags
+												.map(normalizeConcept)
+												.filter((t: string) => t.length > 0)
+										: [];
+									const tagSet = new Set(tags);
+									const matches = lowerWords.reduce(
+										(n: number, w: string) =>
+											tagSet.has(w) ? n + 1 : n,
+										0,
+									);
+									return { content, matches };
+								})
+								.filter((entry) => entry.matches > 0);
+
+							const bestMatchCount = scored.reduce(
+								(max, entry) => (entry.matches > max ? entry.matches : max),
+								0,
+							);
+
+							statementsList = scored
+								.filter((entry) => entry.matches === bestMatchCount)
+								.map((entry) => entry.content);
+
 							scopeLabel = `Concepts: ${selectedWords.join(", ")}`;
+							if (bestMatchCount > 0 && bestMatchCount < selectedWords.length) {
+								scopeLabel += ` (best overlap: ${bestMatchCount}/${selectedWords.length})`;
+							}
 							if (statementsList.length === 0) {
 								emptyReason = "No statements reference the selected concepts.";
 							}
