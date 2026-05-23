@@ -1352,6 +1352,7 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 					if (
 						actionMessage != "question" &&
 						actionMessage != "develop" &&
+						actionMessage != "transcend" &&
 						actionMessage != "summarize" &&
 						actionMessage != "graph summary" &&
 						actionMessage != "chat" &&
@@ -1520,6 +1521,7 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 							actionMessage == "graph summary" ||
 							actionMessage == "context" ||
 							actionMessage == "develop" ||
+							actionMessage == "transcend" ||
 							actionMessage == "question"
 								? this.getAllStatementsOfTopics({
 										statements,
@@ -1876,11 +1878,13 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 
 	public generatePrefix(action: string): string {
 		const config = vscode.workspace.getConfiguration("infranodus-graph-view");
-		// Develop honours the "Transcend" toggle: when on, the prompt shown in
-		// clipboard/webview/log advertises lateral exploration rather than
-		// in-discourse development. The Custom AI Prompt setting is ignored in
-		// this mode — the transcend phrasing is fixed.
-		if (action === "develop" && config.get<boolean>("useTranscendMode")) {
+		// Transcend is now emitted directly by the graph. The legacy
+		// useTranscendMode setting is no longer surfaced in package.json but is
+		// still honored here so existing user settings.json values keep working.
+		if (
+			action === "transcend" ||
+			(action === "develop" && config.get<boolean>("useTranscendMode"))
+		) {
 			return "Find an idea that transcends the current graph structure and concepts and connects them to something new";
 		}
 		// The "Develop" and "Chat" prompts are user-configurable via settings.
@@ -1921,6 +1925,7 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 		const labelMap: Record<string, string> = {
 			question: "Question",
 			develop: "Idea",
+			transcend: "Transcend",
 			summarize: "Summary",
 			"graph summary": "Graph Summary",
 			chat: "Chat",
@@ -1933,7 +1938,13 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 	private getGraphAiAdviceRequestMode(
 		action: string,
 	): GraphAiAdviceRequestMode | undefined {
+		if (action === "transcend") {
+			return "transcend";
+		}
 		if (action === "develop") {
+			// Backward compat: the useTranscendMode setting is no longer
+			// declared in package.json but is still honored if present in
+			// user settings.json from an earlier version.
 			const useTranscend = vscode.workspace
 				.getConfiguration("infranodus-graph-view")
 				.get<boolean>("useTranscendMode");
@@ -3420,6 +3431,7 @@ class ClipboardViewProvider implements vscode.WebviewViewProvider {
 		const labelMap: Record<string, string> = {
 			question: "Question",
 			develop: "Idea",
+			transcend: "Transcend",
 			summarize: "Summary",
 			"graph summary": "Graph Summary",
 			context: "Context",
