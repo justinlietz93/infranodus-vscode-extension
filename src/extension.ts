@@ -437,6 +437,11 @@ export function activate(context: vscode.ExtensionContext) {
 			if (event.affectsConfiguration("infranodus-graph-view.theme")) {
 				provider.refreshTheme();
 			}
+			// Re-point the iframe when the graph rendering URL changes so
+			// switching the graph site takes effect without a manual reload.
+			if (event.affectsConfiguration("infranodus-graph-view.graphUrl")) {
+				provider.initializeWebview();
+			}
 		}),
 		vscode.window.onDidChangeActiveColorTheme(() => {
 			const setting = vscode.workspace
@@ -1029,6 +1034,13 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 			htmlLength: webviewView.webview.html.length,
 			cspSource: webviewView.webview.cspSource,
 		});
+
+		// A freshly resolved webview always has a brand-new, empty iframe, even
+		// if the underlying document hasn't changed (the view is disposed when
+		// hidden — there is no retainContextWhenHidden). Clear the initial-load
+		// guard so the next topicsSubject emission sends a full LOAD_JSON rather
+		// than a partial RECALCULATION that the empty iframe can't render.
+		this._initialLoadDoneForKey = null;
 
 		// Initialize the webview with the iframe URL
 		this.initializeWebview();
@@ -3343,7 +3355,7 @@ class InfraNodusViewProvider implements vscode.WebviewViewProvider {
 		return this._stripMarkupTags(extracted.filter(Boolean).join("\n"));
 	}
 
-	private async initializeWebview() {
+	public async initializeWebview() {
 		if (!this._view) {
 			console.warn("[InfraNodus][ext] initializeWebview called but this._view is missing");
 			return;

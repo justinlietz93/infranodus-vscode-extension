@@ -1046,6 +1046,17 @@
 		<script>
 			const vscode = acquireVsCodeApi();
 
+			// Merge a patch into the persisted webview state instead of replacing
+			// it. vscode.setState() overwrites wholesale, so every writer must
+			// preserve the other keys (e.g. graphData must survive a theme/URL
+			// write, and infraNodusIframeUrl must survive a graphData write).
+			// Routing all writes through here makes that invariant structural —
+			// a bare setState that dropped graphData was a cause of "graph loads
+			// empty after switching the graph site".
+			function patchState(patch) {
+				vscode.setState({ ...(vscode.getState() || {}), ...patch });
+			}
+
 			function applyTheme(theme) {
 				const resolved = theme === "dark" ? "dark" : "light";
 				document.body.setAttribute("data-theme", resolved);
@@ -1759,11 +1770,7 @@
 							return;
 						}
 						// Store the data in vscode state
-						const currentState = vscode.getState() || {};
-						vscode.setState({
-							...currentState,
-							graphData: message.payload,
-						});
+						patchState({ graphData: message.payload });
 
 						// Forward the message to the iframe
 						document.getElementById("graphFrame").contentWindow.postMessage(
@@ -1920,8 +1927,10 @@
 							theme,
 							hasUserId: !!message.userId,
 						});
-						// Store the URL and theme using vscode state
-						vscode.setState({
+						// Store the URL and theme using vscode state. Use patchState
+						// so graphData survives — otherwise the READY-replay on the
+						// next reload finds no graph and the iframe renders empty.
+						patchState({
 							infraNodusIframeUrl: iframeUrl,
 							infraNodusTheme: theme,
 						});
@@ -2128,11 +2137,7 @@
 						const iframe = document.getElementById("graphFrame");
 						if (iframe && iframe.contentWindow) {
 							// Store the data in vscode state
-							const currentState = vscode.getState() || {};
-							vscode.setState({
-								...currentState,
-								graphData: message.payload,
-							});
+							patchState({ graphData: message.payload });
 
 							iframe.contentWindow.postMessage(
 								{
@@ -2167,11 +2172,22 @@
 						const recalcIframe = document.getElementById("graphFrame");
 						if (recalcIframe && recalcIframe.contentWindow) {
 							// Update stored graphData so a future webview reload
-							// restores the latest (post-recalculation) graph.
+							// restores the latest (post-recalculation) graph. The
+							// RECALCULATION payload is a partial ({ entriesAndGraphOfContext }
+							// only), so MERGE it into the stored full LOAD_JSON payload
+							// instead of replacing it — otherwise the READY-replay on the
+							// next reload sends a malformed LOAD_JSON and the iframe renders
+							// empty. This shallow merge is correct because
+							// entriesAndGraphOfContext is a complete subtree (the same field
+							// LOAD_JSON sends), not a diff within it — so it replaces the
+							// graph wholesale while preserving sibling keys like topicNames.
+							// Do NOT turn this into a deep merge.
 							const currentRecalcState = vscode.getState() || {};
-							vscode.setState({
-								...currentRecalcState,
-								graphData: message.payload,
+							patchState({
+								graphData: {
+									...(currentRecalcState.graphData || {}),
+									...message.payload,
+								},
 							});
 
 							recalcIframe.contentWindow.postMessage(
